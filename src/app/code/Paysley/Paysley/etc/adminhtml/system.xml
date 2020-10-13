@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © 2015 Magento. All rights reserved.
+ * See COPYING.txt for license details.
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <section id="paysley" translate="label" type="text" sortOrder="500" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Paysley</label>
+            <tab>sales</tab>
+            <resource>Paysley_Paysley::payment</resource>
+            <group id="paysley_settings" translate="label" type="text" sortOrder="800" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Paysley Settings</label>
+                <field id="version" type="label" sortOrder="1" showInDefault="1">
+                    <label>1.0.0</label>
+                    <frontend_model>Magento\Config\Block\System\Config\Form\Field\Heading</frontend_model>
+                    <config_path>general/paysley_settings/version</config_path>
+                </field>
+                <field id="payment_method_title" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Title</label>
+                    <comment>This is the title which the user sees during checkout.</comment>
+                    <config_path>general/paysley_settings/payment_method_title</config_path>
+                    <frontend_class>required-entry</frontend_class>
+                </field>
+                <field id="payment_method_description" translate="label" type="text" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Description</label>
+                    <comment>This is the description which the user sees during checkout.</comment>
+                    <config_path>general/paysley_settings/payment_method_description</config_path>
+                    <frontend_class>required-entry</frontend_class>
+                </field>
+                <field id="access_key" translate="label" type="obscure" sortOrder="7" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Access Key</label>
+                    <comment>This is the access key, received from Paysley developer portal. ( required )</comment>
+                    <config_path>general/paysley_settings/access_key</config_path>
+                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <frontend_class>required-entry</frontend_class>
+                </field>
+                <field id="paysley_log" translate="label" type="select" sortOrder="9" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Logging</label>
+                    <comment>Enable transaction logging for paysley.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <config_path>general/paysley_settings/paysley_log</config_path>
+                </field>
+            </group>
+
+            
+            <group id="paysley_payments" translate="label" type="text" sortOrder="1000" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Payment Methods</label>
+                <group id="paysley_flexible" translate="label" type="text" sortOrder="1001" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Paysley Payments Options</label>
+                    <field id="active" translate="label" type="select" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Active</label>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                        <config_path>payment/paysley_flexible/active</config_path>
+                    </field>
+                </group>
+                <group id="paysley_general" translate="label" type="text" sortOrder="1100" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <frontend_model>Paysley\Paysley\Block\Adminhtml\System\Config\Config</frontend_model>
+                </group>
+            </group>
+        </section>
+    </system>
+</config>

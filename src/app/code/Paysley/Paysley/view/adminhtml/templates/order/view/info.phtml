@@ -1,0 +1,19 @@
+<?php $additionalInfos = $block->getAllAdditionalInfo(); ?>
+
+<?php if (isset($additionalInfos['paysley_transaction_id'])): ?>
+    <div class="additional-information-item">
+        <?= /* @noEscape */ __('Transaction ID') .' : ' . $additionalInfos['paysley_transaction_id'] ?>
+    </div>
+<?php endif; ?>
+
+<?php if (isset($additionalInfos['paysley_status'])): ?>
+    <div class="additional-information-item">
+        <?= /* @noEscape */ __('Order Status') .' : ' . __($additionalInfos['paysley_status']) ?>
+    </div>
+<?php endif; ?>
+
+<?php if (isset($additionalInfos['paysley_payment_id'])): ?>
+    <div class="additional-information-item">
+        <?= /* @noEscape */ __('Payment ID') .' : ' . $additionalInfos['paysley_payment_id'] ?>
+    </div>
+<?php endif; ?>
