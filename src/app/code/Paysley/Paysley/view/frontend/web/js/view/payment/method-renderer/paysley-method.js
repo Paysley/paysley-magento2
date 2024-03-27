@@ -13,7 +13,6 @@ define(
     ],
     function ($, Component, setPaymentMethodAction, quote) {
         'use strict';
-
         return Component.extend({
             defaults: {
                 template: 'Paysley_Paysley/payment/paysley-method'
@@ -34,7 +33,6 @@ define(
             },
             initPaysley: function() {
                 var billingAddress = quote.billingAddress();
-
                 $('[data-key]').hide();
                 $('[data-key='+billingAddress.countryId+']').show();
                 

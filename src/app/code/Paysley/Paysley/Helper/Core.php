@@ -50,7 +50,7 @@ class Core extends \Magento\Framework\App\Helper\AbstractHelper
      *
      * @var string
      */
-    public $apiTestUrl = 'https://stagetest.paysley.io/v2';
+    public $apiTestUrl = 'https://test.paysley.io/v2';
 
     /**
      * [__construct description]
@@ -59,6 +59,10 @@ class Core extends \Magento\Framework\App\Helper\AbstractHelper
      * @param \Paysley\Paysley\Helper\Curl                  $curl
      * @param \Magento\Framework\Locale\TranslatedLists   $translatedList
      */
+
+    protected $curl;
+    protected $logger;
+    protected $translatedList;
     public function __construct(
         \Magento\Framework\App\Helper\Context $context,
         \Paysley\Paysley\Helper\Logger $logger,
@@ -91,14 +95,12 @@ class Core extends \Magento\Framework\App\Helper\AbstractHelper
      */
     public function getPaymentUrl($parameters)
     {
-        $url = $this->getApiUrl() . '/pos/generate-link';
-
+        $url = $this->getApiUrl() . '/payment-requests';
         $this->logger->info('get api URL : '.$url);
         $this->logger->info(
             'get post link Parameters : '.
             json_encode($parameters)
         );
-
         return $this->curl->sendRequest($url, $parameters, $this->accessKey, 'POST');
     }
 
@@ -386,20 +388,18 @@ class Core extends \Magento\Framework\App\Helper\AbstractHelper
     public function getComment($response)
     {
         $separator = ". ";
-
         $comment = "";
-        
-        if (isset($response['message'])) {
+        if (!empty($response['message'])) {
             $comment .= __('Message')." : ".$response['message'].$separator;
         }
         return $comment;
     }
 
-      /**
-       * do refund
-       * @param  array $parameters
-       * @return boolean | xml
-       */
+    /**
+     * do refund
+     * @param  array $parameters
+     * @return boolean | xml
+     */
     public function doRefund($paymentId, $parameters)
     {
         $url = $this->getApiUrl() . '/refunds/' . $paymentId;
@@ -423,10 +423,402 @@ class Core extends \Magento\Framework\App\Helper\AbstractHelper
         if (defined('\Magento\Framework\AppInterface::VERSION')) {
             return \Magento\Framework\AppInterface::VERSION;
         }
-
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $productMetaData = $objectManager->create(ProductMetadataInterface::class);
-
         return $productMetaData->getVersion();
+    }
+
+    /**
+	 * Get lists of products.
+     * @param string $productName
+     * @return array product response
+	 */
+	public function getProducts($productName = null)
+	{
+		$url = $this->getApiUrl() . '/products-services';
+		if (!empty($productName)) {
+			$url .= "?keywords=".urlencode($productName);
+		}
+        $this->logger->info('get products URL : '.$url);
+        return $this->curl->sendRequest($url, "", $this->accessKey);
+	}
+
+    /**
+	 * Function to create the product on the paysley
+	 * Create new Product.
+     * @param $body  Body of create product api
+     * @return array api response
+	 */
+	public function createProduct($body)
+	{
+		$url = $this->getApiUrl() . '/products-services';
+        $this->logger->info('Create product URL : '.$url);
+        $this->logger->info(
+            'Create product parameters : '.
+            json_encode($body)
+        );
+        return $this->curl->sendRequest($url, $body, $this->accessKey, 'POST');
+	}
+
+    /**
+	 * Function to update the product on the paysley
+     * @param $body  Body of update product api
+     * @return array api response
+	 */
+	public function updateProduct($body)
+	{
+		$url = $this->getApiUrl() . '/products-services';
+        $this->logger->info('Update product URL : '.$url);
+        $this->logger->info(
+            'Updatae product parameters : '.
+            json_encode($body)
+        );
+        return $this->curl->sendRequest($url, $body, $this->accessKey, 'PUT');
+	}
+
+    /**
+	 * Get list of categories.
+	 * @param string $categoryName
+	 * @return category list api response
+	 */
+	public function categoryList($categoryName = null)
+	{
+		$url = $this->getApiUrl() . '/products-services/category';
+		if (!empty($categoryName)) {
+			$url .= "?keywords=".urlencode($categoryName);
+		}
+        $this->logger->info('Category list api URL : '.$url);
+		return $this->curl->sendRequest($url, "", $this->accessKey);
+	}
+
+    /**
+	 * Function to creaate catogry on paysley.
+	 * @param array $body
+	 * @return create category api response
+	 */
+	public function createCategory($body)
+	{
+		$url = $this->getApiUrl() . '/products-services/category';
+        $this->logger->info('Create category api URL : '.$url);
+        $this->logger->info(
+            'Create category api parameters : '.
+            json_encode($body)
+        );
+        return $this->curl->sendRequest($url, $body, $this->accessKey, 'POST');
+	}
+
+    /**
+	 * Fucntion to get the customer List.
+     * @param string $searchKeyword
+     * @return customerlist api response
+	 */
+	public function customerList($searchKeyword = null)
+	{
+		$url = $this->getApiUrl() . '/customers';
+		if ($searchKeyword){
+			$url .= "?keywords=".urlencode($searchKeyword)."&limit=500";
+        }
+        $this->logger->info('Customer list api URL : '.$url);
+        return $this->curl->sendRequest($url, "", $this->accessKey);
+	}
+
+
+    /**
+	 * Function to create new customer.
+     * @param array $body
+     * @return createcustomer api response  
+	 */
+	public function createCustomer($body)
+	{
+		$url = $this->getApiUrl() . '/customers';
+        $this->logger->info('Create customer api  URL : '.$url);
+        $this->logger->info(
+            'Create customer api parameters : '.
+            json_encode($body)
+        );
+        $this->curl->sendRequest($url, $body, $this->accessKey, 'POST');
+	}
+
+    /**
+	 * Function to update customer.
+     * @param array $body
+     *  @return array updatecustomer api response
+	 */
+	public function updateCustomer($body)
+	{
+		$url = $this->getApiUrl() . '/customers';
+        $this->logger->info('Update customer api  URL : '.$url);
+        $this->logger->info(
+            'Update customer api parameters : '.
+            json_encode($body)
+        );
+        return $this->curl->sendRequest($url, $body, $this->accessKey, 'PUT');
+	}
+
+    /**
+	 * Get payment details
+     * @param int $transactionId
+     * @return array paymentdetail api response 
+	 */
+	public function getPaymentDetails($transactionId)
+	{
+		$url = $this->getApiUrl() . '/payment-requests/'.$transactionId;
+        return $this->curl->sendRequest($url, "", $this->accessKey);
+	}
+
+
+    /**
+     * get getCountryPhoneCode by country_iso
+     * @param  string $country_iso
+     * @return string
+     */
+    public function getCountryPhoneCode($country_iso)
+    {
+        $countryPhoneCodes = [
+            'AF' => '+93',
+			'AL' => '+355',
+			'DZ' => '+213',
+			'AS' => '+1-684',
+			'AD' => '+376',
+			'AO' => '+244',
+			'AI' => '+1-264',
+			'AQ' => '+672',
+			'AG' => '+1-268',
+			'AR' => '+54',
+			'AM' => '+374',
+			'AW' => '+297',
+			'AU' => '+61',
+			'AT' => '+43',
+			'AZ' => '+994',
+			'BS' => '+1-242',
+			'BH' => '+973',
+			'BD' => '+880',
+			'BB' => '+1-246',
+			'BY' => '+375',
+			'BE' => '+32',
+			'BZ' => '+501',
+			'BJ' => '+229',
+			'BM' => '+1-441',
+			'BT' => '+975',
+			'BO' => '+591',
+			'BA' => '+387',
+			'BW' => '+267',
+			'BR' => '+55',
+			'IO' => '+246',
+			'VG' => '+1-284',
+			'BN' => '+673',
+			'BG' => '+359',
+			'BF' => '+226',
+			'BI' => '+257',
+			'KH' => '+855',
+			'CM' => '+237',
+			'CA' => '+1',
+			'CV' => '+238',
+			'KY' => '+1-345',
+			'CF' => '+236',
+			'TD' => '+235',
+			'CL' => '+56',
+			'CN' => '+86',
+			'CX' => '+61',
+			'CC' => '+61',
+			'CO' => '+57',
+			'KM' => '+269',
+			'CK' => '+682',
+			'CR' => '+506',
+			'HR' => '+385',
+			'CU' => '+53',
+			'CW' => '+599',
+			'CY' => '+357',
+			'CZ' => '+420',
+			'CD' => '+243',
+			'DK' => '+45',
+			'DJ' => '+253',
+			'DM' => '+1-767',
+			'DO' => '+1-809',
+			'TL' => '+670',
+			'EC' => '+593',
+			'EG' => '+20',
+			'SV' => '+503',
+			'GQ' => '+240',
+			'ER' => '+291',
+			'EE' => '+372',
+			'ET' => '+251',
+			'FK' => '+500',
+			'FO' => '+298',
+			'FJ' => '+679',
+			'FI' => '+358',
+			'FR' => '+33',
+			'PF' => '+689',
+			'GA' => '+241',
+			'GM' => '+220',
+			'GE' => '+995',
+			'DE' => '+49',
+			'GH' => '+233',
+			'GI' => '+350',
+			'GR' => '+30',
+			'GL' => '+299',
+			'GD' => '+1-473',
+			'GU' => '+1-671',
+			'GT' => '+502',
+			'GG' => '+44-1481',
+			'GN' => '+224',
+			'GW' => '+245',
+			'GY' => '+592',
+			'HT' => '+509',
+			'HN' => '+504',
+			'HK' => '+852',
+			'HU' => '+36',
+			'IS' => '+354',
+			'IN' => '+91',
+			'ID' => '+62',
+			'IR' => '+98',
+			'IQ' => '+964',
+			'IE' => '+353',
+			'IM' => '+44-1624',
+			'IL' => '+972',
+			'IT' => '+39',
+			'CI' => '+225',
+			'JM' => '+1-876',
+			'JP' => '+81',
+			'JE' => '+44-1534',
+			'JO' => '+962',
+			'KZ' => '+7',
+			'KE' => '+254',
+			'KI' => '+686',
+			'XK' => '+383',
+			'KW' => '+965',
+			'KG' => '+996',
+			'LA' => '+856',
+			'LV' => '+371',
+			'LB' => '+961',
+			'LS' => '+266',
+			'LR' => '+231',
+			'LY' => '+218',
+			'LI' => '+423',
+			'LT' => '+370',
+			'LU' => '+352',
+			'MO' => '+853',
+			'MK' => '+389',
+			'MG' => '+261',
+			'MW' => '+265',
+			'MY' => '+60',
+			'MV' => '+960',
+			'ML' => '+223',
+			'MT' => '+356',
+			'MH' => '+692',
+			'MR' => '+222',
+			'MU' => '+230',
+			'YT' => '+262',
+			'MX' => '+52',
+			'FM' => '+691',
+			'MD' => '+373',
+			'MC' => '+377',
+			'MN' => '+976',
+			'ME' => '+382',
+			'MS' => '+1-664',
+			'MA' => '+212',
+			'MZ' => '+258',
+			'MM' => '+95',
+			'NA' => '+264',
+			'NR' => '+674',
+			'NP' => '+977',
+			'NL' => '+31',
+			'AN' => '+599',
+			'NC' => '+687',
+			'NZ' => '+64',
+			'NI' => '+505',
+			'NE' => '+227',
+			'NG' => '+234',
+			'NU' => '+683',
+			'KP' => '+850',
+			'MP' => '+1-670',
+			'NO' => '+47',
+			'OM' => '+968',
+			'PK' => '+92',
+			'PW' => '+680',
+			'PS' => '+970',
+			'PA' => '+507',
+			'PG' => '+675',
+			'PY' => '+595',
+			'PE' => '+51',
+			'PH' => '+63',
+			'PN' => '+64',
+			'PL' => '+48',
+			'PT' => '+351',
+			'PR' => '+1-787',
+			'QA' => '+974',
+			'CG' => '+242',
+			'RE' => '+262',
+			'RO' => '+40',
+			'RU' => '+7',
+			'RW' => '+250',
+			'BL' => '+590',
+			'SH' => '+290',
+			'KN' => '+1-869',
+			'LC' => '+1-758',
+			'MF' => '+590',
+			'PM' => '+508',
+			'VC' => '+1-784',
+			'WS' => '+685',
+			'SM' => '+378',
+			'ST' => '+239',
+			'SA' => '+966',
+			'SN' => '+221',
+			'RS' => '+381',
+			'SC' => '+248',
+			'SL' => '+232',
+			'SG' => '+65',
+			'SX' => '+1-721',
+			'SK' => '+421',
+			'SI' => '+386',
+			'SB' => '+677',
+			'SO' => '+252',
+			'ZA' => '+27',
+			'KR' => '+82',
+			'SS' => '+211',
+			'ES' => '+34',
+			'LK' => '+94',
+			'SD' => '+249',
+			'SR' => '+597',
+			'SJ' => '+47',
+			'SZ' => '+268',
+			'SE' => '+46',
+			'CH' => '+41',
+			'SY' => '+963',
+			'TW' => '+886',
+			'TJ' => '+992',
+			'TZ' => '+255',
+			'TH' => '+66',
+			'TG' => '+228',
+			'TK' => '+690',
+			'TO' => '+676',
+			'TT' => '+1-868',
+			'TN' => '+216',
+			'TR' => '+90',
+			'TM' => '+993',
+			'TC' => '+1-649',
+			'TV' => '+688',
+			'VI' => '+1-340',
+			'UG' => '+256',
+			'UA' => '+380',
+			'AE' => '+971',
+			'GB' => '+44',
+			'US' => '+1',
+			'UY' => '+598',
+			'UZ' => '+998',
+			'VU' => '+678',
+			'VA' => '+379',
+			'VE' => '+58',
+			'VN' => '+84',
+			'WF' => '+681',
+			'EH' => '+212',
+			'YE' => '+967',
+			'ZM' => '+260',
+			'ZW' => '+263',
+        ];
+        if (array_key_exists($country_iso, $countryPhoneCodes)) {
+            return $countryPhoneCodes[$country_iso];
+        }
+        return '';
     }
 }

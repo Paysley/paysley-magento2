@@ -54,13 +54,12 @@ define(
                 payload.billingAddress = quote.billingAddress();
             }
             fullScreenLoader.startLoader();
-
             return storage.post(
                 serviceUrl,
                 JSON.stringify(payload)
             ).done(
                 function () {
-                    window.location.replace(url.build('paysley/payment/form'));
+                    window.location.replace(url.build('paysley/payment'));
                 }
             ).fail(
                 function (response) {
