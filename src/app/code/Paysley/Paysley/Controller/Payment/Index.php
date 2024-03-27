@@ -35,6 +35,9 @@ class Index extends \Magento\Framework\App\Action\Action
     public $salesEmailOrder;
     public $catalogSession;
     public $paymentType   = 'DB';
+    public $categoryRepository;
+    public $checkoutCart;
+    public $order;
 
     /**
      * @var CheckoutSession
@@ -70,7 +73,9 @@ class Index extends \Magento\Framework\App\Action\Action
         \Magento\Framework\DB\Transaction $dbTransaction,
         \Magento\Sales\Model\Order\Email\Sender\InvoiceSender $salesEmailInvoice,
         \Magento\Sales\Model\Order\Email\Sender\OrderSender $salesEmailOrder,
-        \Magento\Catalog\Model\Session $catalogSession
+        \Magento\Catalog\Model\Session $catalogSession,
+        \Magento\Catalog\Api\CategoryRepositoryInterface $categoryRepository,
+        \Magento\Checkout\Model\Cart $checkoutCart
     ) {
         parent::__construct($context);
         $this->checkoutHelper = $checkoutHelper;
@@ -86,6 +91,8 @@ class Index extends \Magento\Framework\App\Action\Action
         $this->salesEmailInvoice = $salesEmailInvoice;
         $this->salesEmailOrder = $salesEmailOrder;
         $this->catalogSession = $catalogSession;
+        $this->categoryRepository = $categoryRepository;
+        $this->checkoutCart = $checkoutCart;
     }
 
     /**
@@ -121,7 +128,6 @@ class Index extends \Magento\Framework\App\Action\Action
     {
         $order = $this->salesOrder;
         $order->load($this->_getCheckoutSession()->getLastOrderId());
-
         return $order;
     }
 
@@ -134,7 +140,6 @@ class Index extends \Magento\Framework\App\Action\Action
     {
         $order = $this->salesOrder;
         $order->loadByIncrementId($incrementId);
-
         return $order;
     }
 
@@ -145,40 +150,24 @@ class Index extends \Magento\Framework\App\Action\Action
     {
         $this->logger->info('process generate payment form');
         $this->order = $this->_getOrder();
+        $paymentMethod = $this->order->getPayment()->getMethod();
         $this->method = $this->order->getPayment()->getMethodInstance();
-        $methodTitle = $this->method->getTitle();
-
-        if ($this->order->getPayment()->getAdditionalInformation('is_payment_processed')) {
-            $this->_redirect(
-                'paysley/payment/handlereturn',
-                [
-                    'orderId' => $this->order->getIncrementId(),
-                    '_secure' => true
-                ]
-            );
+        $settings = $this->method->getPaysleySettings();
+        if (empty($paymentMethod) || empty($settings['access_key'])) {
+            $this->redirectError(__('Error while Processing Request: please try again.'));
+            return false;
         }
-
-        $paymentUrl = $this->catalogSession->getPaymentUrl();
-        
-        if (isset($responseStatus['status'])) {
-            if ($responseStatus['status'] == \Paysley\Paysley\Model\Method\AbstractMethod::FAILED_STATUS) {
-                $failedReasonCode = '';
-                if (isset($responseStatus['message'])) {
-                    $failedReasonCode = $responseStatus['message'];
-                }
-                $this->redirectError(__($failedReasonCode));
-            } else {
-                $this->_redirect(
-                    'paysley/payment/handlereturn',
-                    [
-                        'orderId' => $this->order->getIncrementId(),
-                        '_secure' => true
-                    ]
-                );
-            }
+        $this->helperCore->accessKey = $settings['access_key'];
+        $this->helperCore->isTestMode = str_contains($settings['access_key'], "py_test_");
+        $paymentParameters = $this->getPaymentParameters();
+        $createPaymentResponse = $this->helperCore->getPaymentUrl($paymentParameters);
+        if (!isset($createPaymentResponse['result']) || $createPaymentResponse['result'] != 'success') {
+            $errorMessage = empty($createPaymentResponse['error_message']) ? 'Error while Processing Request: please try again.' : $createPaymentResponse['error_message'];
+            $this->redirectError($errorMessage);
+            return false;
         }
-        
-        $this->_redirect($paymentUrl);
+        $this->catalogSession->setTransactionId($createPaymentResponse['transaction_id']);
+        $this->_redirect($createPaymentResponse['long_url']);
     }
 
     /**
@@ -240,50 +229,41 @@ class Index extends \Magento\Framework\App\Action\Action
      */
     public function getPaymentParameters()
     {
+        $this->order = $this->_getOrder();
         $parameters = [];
-        $settings = $this->method->getPaysleySettings();
         $billingAddress = $this->order->getBillingAddress();
         $currency = $this->checkoutSession->getQuote()->getQuoteCurrencyCode();
-
+        $this->createOrUpdateCustomerOnPaysley($billingAddress);
         $parameters = [
-            'reference'    => $this->order->getIncrementId().time(),
-            'payment_type' => $this->paymentType,
-            'currency'     => $currency,
-            'amount'       => (float)$this->setFormatNumber($this->checkoutSession->getQuote()->getGrandTotal()),
-            'cart_items'   => $this->getCartItemsParameters()
+            'reference_number'          => $this->order->getIncrementId().time(),
+            'payment_type'              => $this->paymentType,
+            'request_methods'           => ["WEB"],
+            'email'                     => $billingAddress->getEmail() ?? "",
+            'mobile_number'             => !empty($billingAddress->getTelephone()) ? $this->helperCore->getCountryPhoneCode($billingAddress->getCountryId()).$billingAddress->getTelephone() : "",
+            'customer_first_name'       => $billingAddress->getFirstname() ?? "",
+            'customer_last_name'        => $billingAddress->getFirstname() ?? "",
+            'currency'                  => $currency,
+            'amount'                    => (float)$this->setFormatNumber($this->checkoutSession->getQuote()->getGrandTotal()),
+            // 'shipping_enabled'       => true,
+            'cart_items'                => $this->getCartItemsParameters(),
+            'fixed_amount'              => true,
         ];
-
-         $parameters['cancel_url'] = $this->_url->getUrl(
-             'paysley/payment/handlecancel',
-             [
-                'orderId' => $this->order->getIncrementId(),
-                'trn_id' => $parameters['reference'],
-                '_secure' => true
-             ]
-         );
-        $parameters['return_url'] = $this->_url->getUrl(
-            'paysley/payment/handlereturn',
-            [
-                'orderId' => $this->order->getIncrementId(),
-                '_secure' => true
-            ]
-        );
-
+        $parameters['cancel_url'] = $this->_url->getUrl('checkout');
         if (version_compare($this->helperCore->getShopVersion(), '2.3.0', '<')) {
             $statusUrl = "handlestatus";
         } else {
             $statusUrl = "handlestatuscsrf";
         }
-
-        $parameters['response_url'] = $this->_url->getUrl(
+        $parameters['redirect_url'] = $this->_url->getUrl(
             'paysley/payment/' . $statusUrl,
             [
                 'orderId' => $this->order->getIncrementId(),
                 'securePayment' => $this->generatePaymentKey($parameters),
-                '_secure' => true
+                'key'=>  base64_encode($this->helperCore->accessKey),
+                '_secure' => true,
+
             ]
         );
-
         return $parameters;
     }
 
@@ -296,23 +276,22 @@ class Index extends \Magento\Framework\App\Action\Action
         $cartItems = [];
         $count = 0;
         $orderAllItems = $this->order->getAllItems();
-
-        foreach ($orderAllItems as $orderItem) {
-            $product = $orderItem->getProduct();
-            $finalPrice = (float)$product->getFinalPrice();
-            $discountAmount = (float)$orderItem->getDiscountAmount();
-            $taxAmount = (float)$orderItem->getTaxAmount();
-            $price = (float)$product->getPrice();
-            $priceIncludeTax = $price + $taxAmount;
-            $cartItems[$count]['qty'] = (int)$orderItem->getQtyOrdered();
-            ;
-            $cartItems[$count]['name'] = $orderItem->getName();
-            $cartItems[$count]['unit_price'] = $priceIncludeTax;
-            $cartItems[$count]['sku'] = $orderItem->getSku();
-
-            $count++;
+        if (!empty($orderAllItems)) {
+            foreach ($orderAllItems as $orderItem) {
+                $product = $orderItem->getProduct();
+                $discountAmount = (float)$orderItem->getDiscountAmount();
+                $taxAmount = (float)$orderItem->getTaxAmount();
+                $price = (float)!empty($product->getSpecialPrice()) ? $product->getSpecialPrice() : $product->getPrice();
+                $priceIncludeTax = (float)$this->setFormatNumber(($price + $taxAmount) - $discountAmount);
+                $cartItems[$count]['qty'] = (int)$orderItem->getQtyOrdered();
+                $cartItems[$count]['name'] = $orderItem->getName();
+                $cartItems[$count]['sku'] = $orderItem->getSku();
+                $cartItems[$count]['sales_price'] = $priceIncludeTax;
+                $cartItems[$count]['unit'] = ['pc'];
+                $cartItems[$count]['product_service_id'] = $this->createOrUpdateProductOnPaysley($product);
+                $count++;
+            }
         }
-        
         return $cartItems;
     }
 
@@ -335,7 +314,6 @@ class Index extends \Magento\Framework\App\Action\Action
     {
         $string = $parameters['currency'].$parameters['amount'];
         $encryptionMethod = "md5";
-
         return strtoupper($encryptionMethod($string));
     }
 
@@ -365,16 +343,13 @@ class Index extends \Magento\Framework\App\Action\Action
     public function createInvoice($order)
     {
         $invoiceService = $this->invoiceService;
-
         $invoice = $invoiceService->prepareInvoice($order);
         $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
         $invoice->register();
-        $invoice->getOrder()->setCustomerNoteNotify(false);
+        $invoice->getOrder()->setCustomerNoteNotify(true);
         $invoice->getOrder()->setIsInProcess(true);
-
         $transactionSave = $this->dbTransaction;
         $transactionSave->addObject($invoice)->addObject($invoice->getOrder())->save();
-
         $invoiceSender = $this->salesEmailInvoice;
         $invoiceSender->send($invoice);
     }
@@ -422,28 +397,10 @@ class Index extends \Magento\Framework\App\Action\Action
      */
     public function validatePayment($order, $responseStatus)
     {
-
         $this->logger->info('validate payment');
-
-        $currentStatus = $order->getPayment()->getAdditionalInformation('paysley_status');
-
-        if ($responseStatus['result'] == 'ACK' && empty($currentStatus)) {
-            $responseStatus['status'] = 'payment_accepted';
-        } else {
-            $responseStatus['status'] = 'canceled';
-        }
-
+        $responseStatus['status'] = $responseStatus['result'] == 'success' ? 'payment_accepted' : 'canceled';
         $this->saveAdditionalInformation($order, $responseStatus);
-
-        if (!isset($currentStatus)) {
-            $this->logger->info('processing payment');
-            $this->processPayment($order, $responseStatus);
-        } else {
-            if ($currentStatus == "pending") {
-                $this->logger->info('processing payment');
-                $this->updateOrderStatus($order, $responseStatus);
-            }
-        }
+        $this->updateOrderStatus($order, $responseStatus);
     }
 
     /**
@@ -454,24 +411,27 @@ class Index extends \Magento\Framework\App\Action\Action
      */
     public function updateOrderStatus($order, $responseStatus)
     {
+        $orderId = $this->getRequest()->getParam('orderId');
         $this->logger->info('update order status');
-
         if ($responseStatus['status'] == "payment_accepted") {
             $this->createInvoice($order);
             $comment = $this->helperCore->getComment($responseStatus);
             $order->addStatusHistoryComment($comment, 'payment_accepted')->save();
             $this->logger->info('update order status to processed');
+            $this->removeAllItemsFromCart();
+            $this->_redirect($this->_url->getUrl('checkout/onepage/success'));            
         } elseif ($responseStatus['status'] == "canceled") {
-            if (isset($responseStatus['message'])) {
+            if (!empty($responseStatus['message'])) {
                 $order->getPayment()->setAdditionalInformation(
                     'failed_reason_code',
                     $responseStatus['message']
                 );
             }
             $comment = $this->helperCore->getComment($responseStatus);
-            $order->addStatusHistoryComment($comment, false);
-            $order->cancel();
-            $this->logger->info('update order status to failed');
+            $order->addStatusHistoryComment($comment, "canceled")->save();
+            $order->cancel()->save();
+            $this->logger->info('update order status to canceled');
+            $this->_redirect($this->_url->getUrl('checkout/onepage/failure', ['order_id' => $orderId, '_secure' => true]));
         }
     }
 
@@ -504,5 +464,160 @@ class Index extends \Magento\Framework\App\Action\Action
             $order->addStatusHistoryComment($comment, false)->save();
             $order->cancel()->save();
         }
+    }
+
+    /**
+	 * Create/Update product on paysley
+     * @param array $product
+     * @return  int $paysleyProductId
+	 */
+	protected function createOrUpdateProductOnPaysley($product = [])
+	{
+		$paysleyProductId = null;
+		if (empty($product)) {
+			return $paysleyProductId;
+		}
+		$data = [];
+		$data['name'] = $product->getName();
+		$data['description'] = $product->getDescription();
+		$data['sku'] = $product->getSku();
+		$data['category_id'] = $this->checkAndCreateProductCategoryOnPaysley($product->getCategoryIds());
+		$data['type'] = 'product';
+		$data['manage_inventory'] = $this->getProductQuantity($product->getQuantityAndStockStatus());
+		$data['unit_in_stock'] = !empty($product->getQuantityAndStockStatus()) ? $product->getQuantityAndStockStatus()['qty'] : 0;
+		$data['unit_low_stock'] = 2;
+		$data['unit_type'] = 'flat-rate';
+		$data['cost'] = (float)$this->setFormatNumber($product->getPrice());
+		$data['sales_price'] = (float)$this->setFormatNumber($product->getPrice());
+		$existingProducts = $this->helperCore->getProducts($product->getName());
+		if (!empty($existingProducts['result']) && $existingProducts['result'] === "success" && !empty($existingProducts['product_services'])) {
+            $data['id'] = $existingProducts['product_services'][0]['id'];
+			$productResult = $this->helperCore->updateProduct($data);
+		} else {
+			$productResult = $this->helperCore->createProduct($data);
+		}
+		if (!empty($productResult['result']) && 'success' === $productResult['result']) {
+			$paysleyProductId = !empty($productResult['product_and_service']) ? $productResult['product_and_service']['id'] : $productResult['id'];
+		}
+		return $paysleyProductId;
+	}
+
+    /**
+     * Function to checkAndCreateProductCategory if category already exists then return the category else create category on paysley
+     * @param int $product_id
+     * @return $categoryid if data exists else null
+     */
+    protected function checkAndCreateProductCategoryOnPaysley ($categoryIds = [])
+    {
+        $category = $this->getCategoryData($categoryIds[0] ?? "");
+		if (!empty($category)) {
+			$categoryResult = $this->helperCore->categoryList($category['category_name']);
+			if (!empty($categoryResult['result']) && 'success' === $categoryResult['result'] && !empty($categoryResult['categories'])) {
+				return $categoryResult['categories'][0]['id'];
+			}
+            $categoryCreateResult = $this->helperCore->createCategory(['name' => $category['category_name']]);
+            if (!empty($categoryCreateResult)) {
+                return $categoryCreateResult['id'];
+            }
+		}
+		return null;
+    }
+
+    /**
+     * Function to get the product quantity
+     * @param arrray $quantityArray 
+     * @return enum(1, 0) $product quantity 
+     */
+
+    protected function getProductQuantity($quantityArray = [])
+    {
+        if (empty($quantityArray)) {
+            return 0;
+        }
+        return $quantityArray['is_in_stock'] && $quantityArray['qty'] ? 1 : 0;
+    } 
+
+    /**
+     * Function to get the category data of specified data
+     * @param int $categoryId 
+     * @return array $categoryData
+     */
+
+    protected function getCategoryData($categoryId)
+    {
+        try {
+            $categoryDetails = [
+                "category_id" => "", 
+                "category_name" => "No Category"
+            ];
+            if (empty($categoryId)) {
+                return $categoryDetails;
+            }
+            $categoryData = $this->categoryRepository->get($categoryId);
+            $categoryDetails["category_id"] = $categoryData->getEntityId();
+            $categoryDetails["category_name"] = $categoryData->getName();
+            return $categoryDetails;
+        } catch (\Exception $e) {
+            $this->logger->error('Exception occurred while getting category data: ' . $e->getMessage());
+            return $categoryDetails;
+        }
+    }
+
+    /**
+	 * Create/Update Customer on paysley
+     * @param $billingAddress
+     * @return int $customer_paysley_id
+	 */
+	protected function createOrUpdateCustomerOnPaysley($billingAddress)
+	{
+		$customerPaysleyId = null;
+        //Get the exists customer lists
+		$checkIfCustomerExistOnPaysleyResult = $this->helperCore->customerList($billingAddress->getEmail());
+		if (!empty($checkIfCustomerExistOnPaysleyResult['result']) && 'success' === $checkIfCustomerExistOnPaysleyResult['result']) {
+			$customerDataToUpdate = [];
+            $address_line1 = !empty($billingAddress->getStreet()[0]) ? $billingAddress->getStreet()[0] : "";
+            $address_line2 = !empty($billingAddress->getStreet()[1]) ? $billingAddress->getStreet()[1] : "";
+            $mobile_number = !empty($billingAddress->getTelephone()) ? $this->helperCore->getCountryPhoneCode($billingAddress->getCountryId()).$billingAddress->getTelephone() : "";
+			// Customer billing information details
+			$customerDataToUpdate['email']         = $billingAddress->getEmail() ?? "";
+			$customerDataToUpdate['mobile_no']     = $mobile_number;
+			$customerDataToUpdate['first_name']    = $billingAddress->getFirstname() ?? "";
+			$customerDataToUpdate['last_name']     = $billingAddress->getLastname() ?? "";
+			$customerDataToUpdate['company_name']  = $billingAddress->getCompany() ?? "";
+			$customerDataToUpdate['listing_type']  = 'individual';
+			$customerDataToUpdate['address_line1'] = $address_line1;
+			$customerDataToUpdate['address_line2'] = $address_line2;
+			$customerDataToUpdate['city'] 		  = $billingAddress->getCity() ?? "";
+			$customerDataToUpdate['state'] 		  = $billingAddress->getRegion() ?? "";
+			$customerDataToUpdate['postal_code']   = $billingAddress->getPostcode() ?? "";
+			$customerDataToUpdate['country_iso']   = $billingAddress->getCountryId() ?? "";
+            //Check customers exists if exists then get set customer paysley id
+			if (!empty($checkIfCustomerExistOnPaysleyResult['customers'])) {
+				$customerDataIndex = array_search($billingAddress->getEmail(), array_column($checkIfCustomerExistOnPaysleyResult['customers'], 'email'));			
+				$customerDataToUpdate['customer_id'] = $customerPaysleyId = $checkIfCustomerExistOnPaysleyResult['customers'][$customerDataIndex]['customer_id'] ?? null;
+			}
+			if (!empty($customerPaysleyId)) {
+                //Update customer
+                $updateCustomerOnPaysleyResult = $this->helperCore->updateCustomer($customerDataToUpdate);
+				if (!empty($updateCustomerOnPaysleyResult['result']) && 'success' === $updateCustomerOnPaysleyResult['result']) {
+				}
+			} else {
+                //Create customer
+				$createCustomerOnPaysleyResult = $this->helperCore->createCustomer($customerDataToUpdate);
+				if (!empty($createCustomerOnPaysleyResult['result']) && 'success' === $createCustomerOnPaysleyResult['result']) {
+					$customerPaysleyId = $createCustomerOnPaysleyResult['customer_id'];
+				}
+			}
+		}
+		return $customerPaysleyId;
+	}
+
+    /** 
+     * Function to remove all items from cart
+     * @return void 
+     */
+    public function removeAllItemsFromCart ()
+    {
+        $this->checkoutCart->truncate()->save();
     }
 }

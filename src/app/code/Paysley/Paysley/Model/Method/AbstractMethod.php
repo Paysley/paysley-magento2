@@ -281,7 +281,6 @@ abstract class AbstractMethod extends \Magento\Payment\Model\Method\AbstractMeth
         }
         
         $settings = $this->getPaysleyGeneralSettings();
-        
         return $settings;
     }
 

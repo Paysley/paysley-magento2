@@ -26,8 +26,7 @@
         <!-- ko if: (getLogos().description != '') -->
             <label data-bind="attr: {'for': getCode()}" class="label" for="{'for': getCode()}">
                 <span data-bind="i18n: getLogos().description"></span>
-            </label>
-            <p/>
+            </label>          
         <!--/ko-->
         <!-- ko foreach: getRegion('messages') -->
         <!-- ko template: getTemplate() --><!-- /ko -->
@@ -47,7 +46,11 @@
             <div class="primary">
                 <button class="action primary checkout"
                         type="submit"
-                        data-bind="click: placeOrderAction, enable: (getCode() == isChecked())"
+                        data-bind="
+                        click: placeOrderAction,
+                        attr: {title: $t('Place Order')},
+                        css: {disabled: !isPlaceOrderActionAllowed()},
+                        enable: (getCode() == isChecked())"
                         disabled>
                     <span data-bind="i18n: 'Place Order'"></span>
                 </button>
